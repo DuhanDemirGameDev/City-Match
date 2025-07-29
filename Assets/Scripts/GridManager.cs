@@ -111,7 +111,7 @@ public class GridManager : MonoBehaviour
     {
         return Mathf.Abs(a.x - b.x) + Mathf.Abs(a.y - b.y) == 1;
     }
-
+    /*
     public void SwapTiles(Tile a, Tile b)
     {
         if (a == null || b == null) return;
@@ -143,6 +143,40 @@ public class GridManager : MonoBehaviour
                     Destroy(t.gameObject);
                 }
             }
+            CollapseAllColumns();
+            SpawnNewTiles();
+        }
+        else
+        {
+            // Eşleşme yok, geri al swap
+            SwapTilesBack(a, b, aX, aY, bX, bY);
+        }
+    }*/
+    public void SwapTiles(Tile a, Tile b)
+    {
+        if (a == null || b == null) return;
+
+        int aX = a.x;
+        int aY = a.y;
+        int bX = b.x;
+        int bY = b.y;
+
+        // Swap grid referansları önce
+        grid[a.x, a.y] = b;
+        grid[b.x, b.y] = a;
+
+        // Swap pozisyonları
+        a.SetPosition(bX, bY);
+        b.SetPosition(aX, aY);
+
+        // Match kontrolü
+        List<Tile> matches = GetMatches(a);
+        matches.AddRange(GetMatches(b));
+
+        if (matches.Count >= 3)
+        {
+            // Artık direkt patlatma ve düşme yerine coroutine çağırıyoruz:
+            StartCoroutine(HandleMatchesRoutine());
         }
         else
         {
@@ -245,6 +279,124 @@ public class GridManager : MonoBehaviour
             }
 
             yield return new WaitForSeconds(0.1f);
+        }
+    }
+
+    void CollapseColumn(int x)
+    {
+        for (int y = 0; y < height - 1; y++)
+        {
+            if (grid[x, y] == null)
+            {
+                // Yukarıdan taş arıyoruz
+                for (int aboveY = y + 1; aboveY < height; aboveY++)
+                {
+                    if (grid[x, aboveY] != null)
+                    {
+                        Tile fallingTile = grid[x, aboveY];
+                        grid[x, y] = fallingTile;
+                        grid[x, aboveY] = null;
+
+                        fallingTile.SetPosition(x, y);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+
+    void CollapseAllColumns()
+    {
+        for (int x = 0; x < width; x++)
+        {
+            CollapseColumn(x);
+        }
+    }
+
+
+    void SpawnNewTiles()
+    {
+        Vector2 offset = GetGridOffset();
+
+        for (int x = 0; x < width; x++)
+        {
+            for (int y = 0; y < height; y++)
+            {
+                if (grid[x, y] == null)
+                {
+                    int tileType = Random.Range(0, tilePrefabs.Length);
+
+                    // Spawn pozisyonunu biraz yukarıda başlatalım (animasyon için güzel durur)
+                    Vector2 spawnPos = new Vector2(x * tileSize, (y + 1f) * tileSize) + offset;
+
+                    GameObject tileGO = Instantiate(tilePrefabs[tileType], spawnPos, Quaternion.identity, gridParent);
+                    Tile newTile = tileGO.GetComponent<Tile>();
+                    newTile.Initialize(x, y, tileType, this);
+                    newTile.SetPosition(x, y); // Hedef konuma anında ışınla (ileride animasyonlu yaparız)
+
+                    grid[x, y] = newTile;
+                }
+            }
+        }
+    }
+
+
+    private IEnumerator HandleMatchesRoutine()
+    {
+        bool matchesFound = true;
+
+        while (matchesFound)
+        {
+            yield return new WaitForSeconds(0.1f); // küçük gecikme, animasyon için
+
+            HashSet<Tile> allMatches = new HashSet<Tile>();
+
+            // Tüm grid'i tara eşleşmeleri bul
+            for (int x = 0; x < width; x++)
+            {
+                for (int y = 0; y < height; y++)
+                {
+                    Tile tile = grid[x, y];
+                    if (tile == null) continue;
+
+                    List<Tile> matches = GetMatches(tile);
+                    if (matches.Count >= 3)
+                    {
+                        foreach (Tile t in matches)
+                        {
+                            allMatches.Add(t);
+                        }
+                    }
+                }
+            }
+
+            if (allMatches.Count == 0)
+            {
+                // Eşleşme kalmadı
+                matchesFound = false;
+                yield break; // Coroutine sonlanır
+            }
+
+            // Eşleşmeleri patlat
+            foreach (Tile t in allMatches)
+            {
+                if (t != null)
+                {
+                    grid[t.x, t.y] = null;
+                    Destroy(t.gameObject);
+                }
+            }
+
+            yield return new WaitForSeconds(0.2f); // Patlama animasyonu için bekle
+
+            CollapseAllColumns();
+
+            yield return new WaitForSeconds(0.2f); // Düşme animasyonu için bekle
+
+            SpawnNewTiles();
+
+            yield return new WaitForSeconds(0.2f); // Yeni taşların gelmesi için bekle
         }
     }
 }
